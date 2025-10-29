@@ -1,0 +1,63 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div class="auth-wrap">
+  <div class="panel auth-panel">
+    <h1 class="auth-title">
+      <ion-icon name="shield-checkmark-outline"></ion-icon>
+      <span>Sentinel Vision <span class="ai">AI</span></span>
+    </h1>
+    <form id="loginForm">
+      <input type="text" id="username" placeholder="Username" required />
+      <input type="password" id="password" placeholder="Password" required />
+      <div class="auth-actions">
+        <button type="submit" class="btn btn-primary">Login</button>
+      </div>
+    </form>
+    <div class="message auth-msg" id="msg"></div>
+    <div class="auth-footer">No account? <a href="register.html">Register here</a></div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('loginForm');
+const msg = document.getElementById('msg');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value.trim();
+
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      localStorage.setItem('token', data.token);
+      msg.style.color = 'lightgreen';
+      msg.textContent = 'Login successful! Redirecting...';
+      setTimeout(() => { window.location.href = 'index.html'; }, 800);
+    } else {
+      msg.style.color = 'red';
+      msg.textContent = data.message || 'Login failed';
+    }
+  } catch (err) {
+    msg.style.color = 'red';
+    msg.textContent = 'Error connecting to server';
+  }
+});
+</script>
+</body>
+</html>

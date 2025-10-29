@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Alert Generation Pipeline</title>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="page-wrap">
+  <div class="panel">
+    <h1 class="panel-title">Alert Generation Pipeline</h1>
+    <div class="pv-actions">
+      <button id="startWebcam" class="btn btn-primary">Start Webcam Detection</button>
+      <button id="startLive" class="btn btn-ghost">Start Live Detection</button>
+      <button id="stopDetection" class="btn btn-danger">Stop Detection</button>
+    </div>
+    <p id="message" class="status-ok">Connected to server.</p>
+  </div>
+</div>
+
+<!-- CCTV Form Popup -->
+<div id="cctvFormPopup">
+  <form id="cctvForm" class="panel" style="min-width:300px;max-width:420px;width:92%">
+    <h2 style="margin-top:0;color:var(--muted);font-size:18px">Add CCTV Device</h2>
+    <input type="text" name="ip" placeholder="Device IP">
+    <input type="text" name="port" placeholder="Port (default 554)" value="554">
+    <input type="text" name="username" placeholder="Username">
+    <input type="password" name="password" placeholder="Password">
+    <input type="text" name="id" placeholder="Channel ID (e.g., 101)">
+    <input type="text" name="rtspUrl" placeholder="Or full RTSP URL">
+    <input type="text" name="cameraId" placeholder="Optional Camera ID label">
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button type="button" id="closeForm" class="btn btn-ghost">Cancel</button>
+      <button type="submit" class="btn btn-primary">Start Detection</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const token = localStorage.getItem('token');
+if (!token) { 
+  alert("Login required"); 
+  window.location.href = 'login.html'; 
+}
+let socket;
+function connectSocket() {
+  socket = io("http://localhost:5000", { auth: { token } });
+  socket.on("connect", () => {
+    console.log("Socket connected:", socket.id);
+    showMessage("Connected to server.");
+  });
+  socket.on("connect_error", (err) => {
+    showMessage("Socket.IO error: " + err.message);
+    console.error("Socket.IO error:", err);
+    if (err.message === "Invalid token") {
+      alert("Session expired. Please log in again.");
+      localStorage.removeItem('token');
+      window.location.href = 'login.html';
+    }
+  });
+}
+function showMessage(msg){ 
+  document.getElementById('message').textContent = msg; 
+}
+window.onload = connectSocket;
+
+// Start webcam
+document.getElementById('startWebcam').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/process-video', {
+      method:'POST',
+      headers:{ 
+        'Content-Type':'application/json', 
+        'Authorization':'Bearer '+token 
+      },
+      body: JSON.stringify({ mode:'webcam' })
+    });
+    const data = await res.json();
+    showMessage(data.message);
+  } catch(e){
+    console.error(e); 
+    showMessage("Error starting webcam");
+  }
+});
+
+// Stop detection (webcam or live)
+document.getElementById('stopDetection').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/stop-detection', {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+token }
+    });
+    const data = await res.json();
+    showMessage(data.message);
+  } catch(e){
+    console.error(e); 
+    showMessage("Error stopping detection");
+  }
+});
+
+// Start live detection — show CCTV form
+document.getElementById('startLive').addEventListener('click', () => {
+  document.getElementById('cctvFormPopup').style.display = 'flex';
+});
+
+// Close form
+document.getElementById('closeForm').addEventListener('click', () => {
+  document.getElementById('cctvFormPopup').style.display = 'none';
+});
+
+// Submit CCTV form
+document.getElementById('cctvForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = Object.fromEntries(formData.entries());
+  try {
+    const res = await fetch('/api/process-video', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer '+token
+      },
+      body: JSON.stringify({
+        mode:'live',
+        ip: data.ip,
+        port: data.port,
+        username: data.username,
+        password: data.password,
+        id: data.id,
+        rtspUrl: data.rtspUrl,
+        cameraId: data.cameraId
+      })
+    });
+    const result = await res.json();
+    showMessage(result.message);
+    document.getElementById('cctvFormPopup').style.display = 'none';
+  } catch(err) {
+    console.error(err);
+    showMessage("Error starting live detection");
+  }
+});
+</script>
+</body>
+</html>

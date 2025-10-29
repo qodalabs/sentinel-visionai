@@ -1,0 +1,32 @@
+# Node
+node_modules/
+
+# Env and secrets
+.env
+wd-dashboard/.env
+
+# Outputs and uploads
+output/
+uploads/
+wd-dashboard/output/
+wd-dashboard/uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Models (weights) - keep placeholders instead
+wd-dashboard/models/*
+!wd-dashboard/models/.keep
+
+# Derived runs (YOLOv5)
+wd-dashboard/yolov5/runs/

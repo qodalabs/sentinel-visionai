@@ -1,0 +1,12 @@
+﻿ultralytics>=8.0.0
+opencv-python
+numpy
+requests
+norfair
+# Torch + friends (let pip resolve correct wheels for your platform)
+torch
+torchvision
+torchaudio
+pandas
+tqdm
+seaborn

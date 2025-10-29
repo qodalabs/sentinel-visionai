@@ -1,0 +1,269 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard</title>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Poppins:wght@400;500&display=swap" rel="stylesheet">
+<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header>
+  <h1>
+    <ion-icon name="eye-outline"></ion-icon>
+    Sentinel Vision <span class="ai">AI</span>
+  </h1>
+  <div class="user-info">
+    <span id="usernameDisplay"></span>
+    <button id="logout">Logout</button>
+  </div>
+</header>
+
+<div class="container">
+  <nav id="sideNav">
+    <div class="nav-greeting">Hello, <span id="sidebarName">User</span></div>
+    <a href="#" id="navDashboard" class="active">Dashboard</a>
+    <a href="#" id="navHistorical">Historical Alerts</a>
+    <a href="#" id="navUsers" style="display:none;">User Management</a>
+  </nav>
+
+  <main id="mainContent"></main>
+</div>
+
+<div id="popup" class="popup"></div>
+
+<script>
+const token = localStorage.getItem('token');
+if(!token){ alert("Login required"); window.location.href='login.html'; }
+let role='user', username='User';
+try{ const payload = JSON.parse(atob(token.split('.')[1])); role = payload.role; username = payload.username || 'User'; }catch(e){ console.error(e); }
+const unameDisplay = document.getElementById('usernameDisplay'); if (unameDisplay) unameDisplay.textContent = `Hello, ${username}! (${role})`;
+const sidebarName = document.getElementById('sidebarName'); if (sidebarName) sidebarName.textContent = username;
+if(role==='admin') document.getElementById('navUsers').style.display='block';
+
+document.getElementById('logout').addEventListener('click',()=>{ localStorage.removeItem('token'); window.location.href='login.html'; });
+
+const mainContent = document.getElementById('mainContent');
+document.getElementById('navDashboard').addEventListener('click', e=>{ e.preventDefault(); showDashboard(); setActiveNav(e.target); });
+document.getElementById('navHistorical').addEventListener('click', e=>{ e.preventDefault(); showHistorical(); setActiveNav(e.target); });
+document.getElementById('navUsers').addEventListener('click', e=>{ e.preventDefault(); showUsers(); setActiveNav(e.target); });
+
+function setActiveNav(el){
+  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ---------------- DASHBOARD ----------------
+function showDashboard(){
+  mainContent.innerHTML=`
+    <div class="grid cols-2">
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px">
+          <h2 style="margin:0;font-size:16px;color:var(--muted)">Live Alerts</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="liveSearch" placeholder="Filter live alerts" style="max-width:220px">
+            <button id="startDetection" class="btn btn-primary">Go to Live Detection</button>
+          </div>
+        </div>
+        <div id="alerts" class="grid"></div>
+      </div>
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px">
+          <h2 style="margin:0 0 0 0;font-size:16px;color:var(--muted)">Recent Alerts</h2>
+          <input id="recentSearch" placeholder="Filter recent alerts" style="max-width:240px">
+        </div>
+        <div id="adminAlerts" class="grid"></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('startDetection').addEventListener('click', ()=>{ window.location.href='/process-video'; });
+  // Live search boxes
+  const liveSearch = document.getElementById('liveSearch');
+  const recentSearch = document.getElementById('recentSearch');
+  if (liveSearch) liveSearch.addEventListener('input', filterLive);
+  if (recentSearch) recentSearch.addEventListener('input', filterRecent);
+  fetchAlerts();
+}
+
+// ---------------- HISTORICAL ALERTS ----------------
+function showHistorical(){
+  mainContent.innerHTML=`
+    <div class="panel">
+      <h2 style="margin:0 0 10px 0;font-size:16px;color:var(--muted)">Historical Alerts</h2>
+      <input type="text" id="searchInput" placeholder="Search by weapon, timestamp or camera">
+      <div id="historicalAlerts" style="margin-top:10px">Loading...</div>
+    </div>
+  `;
+  const searchInput = document.getElementById('searchInput');
+
+  async function fetchAndRenderAlerts(filter=''){
+    try{
+      const res = await fetch('/api/alerts',{ headers:{'Authorization':'Bearer '+token} });
+      let data = await res.json();
+      if(filter){
+        data = data.filter(a =>
+          a.weaponType.toLowerCase().includes(filter.toLowerCase()) ||
+          a.timestamp.toLowerCase().includes(filter.toLowerCase())
+        );
+      }
+      const container = document.getElementById('historicalAlerts');
+      if(!data.length){ container.innerHTML='<p>No alerts</p>'; return; }
+
+      // data from server is already newest first
+      let html=`<table><tr><th>Timestamp</th><th>Weapon</th><th>Camera</th><th>Confidence</th>`;
+      if(role==='admin') html+=`<th>Action</th>`;
+      html+=`</tr>`;
+
+      data.forEach(a=>{
+        const conf = Number(a.confidence||0).toFixed(2);
+        const ts = formatTs(a.timestamp);
+        html+=`<tr>
+          <td>${ts}</td>
+          <td>${a.weaponType||''}</td>
+          <td>${a.cameraId||''}</td>
+          <td>${conf}</td>`;
+        if(role==='admin') html+=`<td><button class="delete actionBtn btn btn-danger" data-id="${a.id}">Delete</button></td>`;
+        html+=`</tr>`;
+      });
+
+      html+='</table>';
+      container.innerHTML = html;
+
+      if(role==='admin'){
+        document.querySelectorAll('.delete').forEach(btn=>{
+          btn.addEventListener('click', async e=>{
+            const id = e.target.dataset.id;
+            await fetch(`/api/alerts/${id}`, { method:'DELETE', headers:{'Authorization':'Bearer '+token} });
+            fetchAndRenderAlerts(searchInput.value);
+          });
+        });
+      }
+    } catch(err){
+      console.error(err);
+      document.getElementById('historicalAlerts').textContent='Error loading alerts';
+    }
+  }
+
+  fetchAndRenderAlerts();
+  searchInput.addEventListener('input', e=>{ fetchAndRenderAlerts(e.target.value); });
+}
+
+// ---------------- USER MANAGEMENT ----------------
+function showUsers(){
+  if(role!=='admin'){ alert('Access denied'); return; }
+  mainContent.innerHTML=`
+    <h2>User Management</h2>
+    <input type="text" id="searchInput" placeholder="Search users by username or role">
+    <div id="userList">Loading...</div>
+  `;
+  const searchInput = document.getElementById('searchInput');
+
+  async function fetchAndRenderUsers(filter=''){
+    try{
+      const res = await fetch('/api/admin-users',{ headers:{'Authorization':'Bearer '+token} });
+      let data = await res.json();
+      if(filter){
+        data = data.filter(u => u.username.toLowerCase().includes(filter.toLowerCase()) || u.role.toLowerCase().includes(filter.toLowerCase()));
+      }
+      const container = document.getElementById('userList');
+      if(!data.length){ container.innerHTML='<p>No users</p>'; return; }
+
+      let html=`<table><tr><th>Username</th><th>Role</th><th>Action</th></tr>`;
+      data.forEach(u=>{
+        html+=`<tr>
+          <td>${u.username}</td>
+          <td>${u.role}</td>
+          <td><button class="delete actionBtn" data-id="${u.id}">Delete</button></td>
+        </tr>`;
+      });
+      html+='</table>';
+      container.innerHTML = html;
+
+      document.querySelectorAll('.delete').forEach(btn=>{
+        btn.addEventListener('click', async e=>{
+          const id = e.target.dataset.id;
+          await fetch(`/api/users/${id}`,{ method:'DELETE', headers:{'Authorization':'Bearer '+token} });
+          fetchAndRenderUsers(searchInput.value);
+        });
+      });
+    } catch(err){ console.error(err); container.innerHTML='Error loading users'; }
+  }
+
+  fetchAndRenderUsers();
+  searchInput.addEventListener('input', e=>{ fetchAndRenderUsers(e.target.value); });
+}
+
+// ---------------- SOCKET.IO ALERTS ----------------
+const socket=io("http://localhost:5000",{ auth:{token} });
+socket.on("init", alerts=>{
+  const list=document.getElementById("alerts");
+  list.innerHTML='';
+  alerts.forEach(addAlert); // append, server sends newest first
+});
+socket.on("newAlert", alert=>{
+  const conf = Number(alert.confidence||0).toFixed(2);
+  showPopup(`${alert.weaponType||"Weapon"} detected! (Conf: ${conf})`);
+  addAlert(alert);
+});
+
+// ---------------- ADD ALERT ----------------
+function formatTs(ts){ try{ return new Date(ts).toLocaleString(); }catch(_){ return ts } }
+function addAlert(alert){
+  const list=document.getElementById("alerts");
+  if(list){
+    const div=document.createElement("div");
+    const conf = Number(alert.confidence||0).toFixed(2);
+    const ts = formatTs(alert.timestamp);
+    div.className="alert-card";
+    div.innerHTML = `
+      <div>
+        <div style="font-weight:600;letter-spacing:.2px">${alert.weaponType||'Weapon'} <span class="pill">${conf}</span></div>
+        <div class="alert-meta">
+          <span>${ts}</span>
+          <span>Cam: ${alert.cameraId||''}</span>
+        </div>
+      </div>
+    `;
+    list.appendChild(div);
+  }
+}
+
+function filterLive(){
+  const q = (document.getElementById("liveSearch")?.value || "").toLowerCase();
+  document.querySelectorAll("#alerts .alert-card").forEach(el=>{ el.style.display = el.textContent.toLowerCase().includes(q) ? "" : "none"; });
+}
+function filterRecent(){
+  const q = (document.getElementById("recentSearch")?.value || "").toLowerCase();
+  document.querySelectorAll("#adminAlerts .alert-card, #adminAlerts table tr").forEach(el=>{ if(el.querySelector("th")) return; el.style.display = el.textContent.toLowerCase().includes(q) ? "" : "none"; });
+}
+
+// ---------------- POPUP ----------------
+function showPopup(msg){
+  const popup=document.getElementById("popup");
+  popup.textContent=msg;
+  popup.style.display="block";
+  setTimeout(()=>{ popup.style.display="none"; },4000);
+}
+
+// ---------------- FETCH ALERTS FOR DASHBOARD ----------------
+async function fetchAlerts(){
+  try{
+    const url=role==='admin'?'/api/admin-alerts':'/api/alerts';
+    const res=await fetch(url,{ headers:{'Authorization':'Bearer '+token} });
+    const data=await res.json();
+    const container=document.getElementById('adminAlerts');
+    container.innerHTML=''; // clear old
+    data.forEach(addAlert); // append, server sends newest first
+  } catch(e){ console.error(e); }
+}
+
+showDashboard();
+</script>
+</body>
+</html>
+
+
+
